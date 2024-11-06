@@ -19,6 +19,7 @@ class Program
     private static string baseUrl = "https://www.immoscout24.ch";
     private static string dataFilePath = Path.Combine(Environment.CurrentDirectory, "NewItemsHistory");
     private static string dataFileName = "items.json";
+    private static bool isUrlOpen = false;
 
     static async Task Main(string[] args)
     {
@@ -59,7 +60,7 @@ class Program
 
     private static async Task<string> GetItemsFromUrl()
     {
-        string url = $"{baseUrl}/de/immobilien/mieten/ort-{city.ToLower()}?nrt={searchRadiusInMeters}&o=dateCreated-desc&pf={priceFrom}&pt=1300";
+        string url = $"{baseUrl}/de/immobilien/mieten/ort-{city.ToLower()}?nrt={searchRadiusInMeters}&o=dateCreated-desc&pf={priceFrom}&pt={priceTo}";
         string content = await GetHtmlContent(url);
 
         if (content == null)
@@ -73,8 +74,7 @@ class Program
     }
 
     private static async Task CheckForNewInserts(string content)
-    {
-        //previousItems.Remove("4001642744");
+    {        
         List<string> currentItemsIds = ParseItemIdsFromHtml(content);
         List<string> newInsertsIds = currentItemsIds.Except(previousItems).ToList();       
         List<Item> newItems = new List<Item>();
@@ -85,15 +85,15 @@ class Program
 
             foreach (var newItem in newInsertsIds)
             {
-                Console.WriteLine($"ID: {newItem}");
-                //(string address, string fullUrl, string imgSrc) = GetResultParamsForItem(content, newItem);
+                Console.WriteLine($"ID: {newItem}");                
                 Item item = GetItemParams(content, newItem);
 
                 if (item.Address != null && item.Url != null)
                 {
                     await ShowToastNotification(item);
 
-                    Console.WriteLine($"New Insert Address: {item.Address}");
+                    Console.WriteLine($"Title: {item.Title}");
+                    Console.WriteLine($"Address: {item.Address}");  
                     Console.WriteLine($"Full URL: {item.Url}");
 
                     newItems.Add(item);
@@ -275,8 +275,7 @@ class Program
             {
                 var imageBytes = await client.GetByteArrayAsync(item.ImgSrc);
 
-                await File.WriteAllBytesAsync(localFilePath, imageBytes);
-                Console.WriteLine($"Image downloaded and saved to: {localFilePath}");
+                await File.WriteAllBytesAsync(localFilePath, imageBytes);                
             }
             catch (Exception ex)
             {
@@ -304,6 +303,8 @@ class Program
 
         ToastNotificationManagerCompat.OnActivated += toastArgs =>
         {
+            if (isUrlOpen) return;
+
             // Parse the arguments to check if this is the "openUrl" action
             ToastArguments args = ToastArguments.Parse(toastArgs.Argument);
 
@@ -312,12 +313,16 @@ class Program
                 // Open the URL in the default browser
                 if (args.TryGetValue("url", out string link))
                 {
+                    isUrlOpen = true;
+
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = link,
                         UseShellExecute = true // Required to open the URL in the default browser
                     });
                 }
+
+                Task.Delay(1000).ContinueWith(_ => isUrlOpen = false);
             }
         };
     }
@@ -344,9 +349,15 @@ class Program
         }
 
         string updatedJson = JsonConvert.SerializeObject(existingItems, Formatting.Indented);
-        await File.WriteAllTextAsync(filePath, updatedJson);
 
-        Console.WriteLine("Items updated successfully!");
+        try
+        {
+            await File.WriteAllTextAsync(filePath, updatedJson);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Failed to update items!");
+        }
     }
 }
 
